@@ -1,19 +1,19 @@
 pipeline {
-    agent { label 'sonar' } // ✅ Updated SonarQube agent label
+    agent { label 'sonar' }
 
     tools {
-        jdk 'JDK17'
-        maven 'Maven'
+        jdk 'java17'
+        maven 'maven'
     }
 
     environment {
-        SONARQUBE_SERVER = 'SONAR-MVN' // ✅ Updated SonarQube server name
+        SONARQUBE_SERVER = 'SONAR-MVN'
         MVN_SETTINGS = '/etc/maven/settings.xml'
-        NEXUS_URL = 'http://18.232.136.245:8081' // ✅ Updated Nexus IP
-        NEXUS_REPO = 'maven-releases'
+        NEXUS_URL = 'http://18.232.136.245:8081'
+        NEXUS_REPO = 'JAVA'
         NEXUS_GROUP = 'com/web/cal'
         NEXUS_ARTIFACT = 'webapp-add'
-        TOMCAT_URL = 'http://18.207.93.131:8080/manager/text' // ✅ Updated Tomcat IP
+        TOMCAT_URL = 'http://18.207.93.131:8080/manager/text'
     }
 
     stages {
@@ -23,7 +23,7 @@ pipeline {
                 checkout([$class: 'GitSCM',
                     branches: [[name: '*/main']],
                     userRemoteConfigs: [[
-                        url: 'https://github.com/DEICONX/Java-Web-Calculator-JEN.git' // ✅ Updated GitHub repo URL
+                        url: 'https://github.com/DEICONX/Java-Web-Calculator-JEN.git'
                     ]]
                 ])
             }
@@ -50,7 +50,6 @@ pipeline {
         stage('Upload Artifact to Nexus') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'nexus', usernameVariable: 'NEXUS_USR', passwordVariable: 'NEXUS_PSW')]) {
-                    // ✅ Updated Nexus credentials ID
                     sh '''#!/bin/bash
                         set -e
                         WAR_FILE=$(ls target/*.war | head -1)
@@ -69,12 +68,11 @@ pipeline {
         }
 
         stage('Deploy to Tomcat') {
-            agent { label 'tomcat' } // ✅ Updated Tomcat agent label
+            agent { label 'tomcat' }
             steps {
                 withCredentials([
                     usernamePassword(credentialsId: 'nexus', usernameVariable: 'NEXUS_USR', passwordVariable: 'NEXUS_PSW'),
                     usernamePassword(credentialsId: 'tomcat', usernameVariable: 'TOMCAT_USR', passwordVariable: 'TOMCAT_PSW')
-                    // ✅ Updated Tomcat credentials ID
                 ]) {
                     sh '''#!/bin/bash
                         set -e
@@ -82,8 +80,10 @@ pipeline {
 
                         echo "🔍 Fetching latest WAR from Nexus..."
                         DOWNLOAD_URL=$(curl -s -u ${NEXUS_USR}:${NEXUS_PSW} \
-                            "${NEXUS_URL}/service/rest/v1/search?repository=${NEXUS_REPO}&amp;group=com.web.cal&amp;name=webapp-add" \
+                            "${NEXUS_URL}/service/rest/v1/search?repository=${NEXUS_REPO}&group=com.web.cal&name=webapp-add" \
                             | grep -oP '"downloadUrl"\\s*:\\s*"\\K[^"]+\\.war' | grep -vE '\\.md5|\\.sha1' | tail -1)
+
+                        echo "📎 Download URL: $DOWNLOAD_URL"
 
                         if [[ -z "$DOWNLOAD_URL" ]]; then
                             echo "❌ No WAR found in Nexus!"
@@ -93,16 +93,19 @@ pipeline {
                         echo "⬇️ Downloading WAR: $DOWNLOAD_URL"
                         curl -u ${NEXUS_USR}:${NEXUS_PSW} -O "$DOWNLOAD_URL"
                         WAR_FILE=$(basename "$DOWNLOAD_URL")
+                        echo "📦 Downloaded WAR file: $WAR_FILE"
+
                         APP_NAME=$(echo "$WAR_FILE" | sed 's/-[0-9].*//')
+                        echo "📛 Application name: $APP_NAME"
 
                         echo "🧹 Removing old deployment..."
-                        curl -u ${TOMCAT_USR}:${TOMCAT_PSW} "${TOMCAT_URL}/undeploy?path=/${APP_NAME}" || true
+                        curl -v -u ${TOMCAT_USR}:${TOMCAT_PSW} "${TOMCAT_URL}/undeploy?path=/${APP_NAME}" || true
 
                         echo "🚀 Deploying new WAR to Tomcat..."
-                        curl -u ${TOMCAT_USR}:${TOMCAT_PSW} --upload-file "$WAR_FILE" \
-                            "${TOMCAT_URL}/deploy?path=/${APP_NAME}&amp;update=true"
+                        curl -v -u ${TOMCAT_USR}:${TOMCAT_PSW} --upload-file "$WAR_FILE" \
+                            "${TOMCAT_URL}/deploy?path=/${APP_NAME}&update=true"
 
-                        echo "✅ Deployment successful! Application updated."
+                        echo "✅ Deployment attempted. Check Tomcat Manager UI."
                     '''
                 }
             }
