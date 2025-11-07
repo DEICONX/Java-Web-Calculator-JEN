@@ -1,13 +1,14 @@
-name: Maven Build & Sonar
+name: Maven CI-CD (Build • SonarQube • Nexus • Tomcat)
 
 on:
   push:
     branches: [ main ]
   pull_request:
     branches: [ main ]
+  workflow_dispatch: {}   # allow manual runs
 
 jobs:
-  build-sonar:
+  build-test-sonar-deploy:
     runs-on: ubuntu-latest
 
     steps:
@@ -21,28 +22,95 @@ jobs:
         distribution: 'temurin'
         cache: 'maven'
 
-    - name: Build (compile & test)
+    - name: Build & Test
       run: mvn -B clean verify
 
+    # ---- SONARQUBE ANALYSIS ----
     - name: SonarQube Analysis
       env:
-        SONAR_HOST_URL: http://34.229.165.151:9000
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}   # REQUIRED: add in repo Settings → Secrets
       run: |
-        echo "SONAR_HOST_URL=${SONAR_HOST_URL}"
-        if [ -z "${SONAR_HOST_URL}" ]; then
-          echo "ERROR: SONAR_HOST_URL is empty." >&2
-          exit 1
-        fi
         if [ -z "${SONAR_TOKEN}" ]; then
           echo "ERROR: SONAR_TOKEN secret is missing." >&2
           exit 1
         fi
 
-        echo "Checking connectivity to SonarQube..."
-        curl -sS -I "${SONAR_HOST_URL}" || { echo "ERROR: Cannot reach ${SONAR_HOST_URL}"; exit 1; }
+        echo "Using Sonar host from pom.xml: $(mvn -q help:evaluate -Dexpression=sonar.host.url -DforceStdout)"
+        mvn -B sonar:sonar -Dsonar.login="${SONAR_TOKEN}"
 
-        mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:4.0.0.4121:sonar \
-          -Dsonar.projectKey=JavaWebApp \
-          -Dsonar.host.url="${SONAR_HOST_URL}" \
-          -Dsonar.login="${SONAR_TOKEN}"
+    # ---- NEXUS DEPLOY ----
+    - name: Configure Maven settings.xml for Nexus
+      env:
+        NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}   # REQUIRED
+        NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}   # REQUIRED
+      run: |
+        if [ -z "${NEXUS_USERNAME}" ] || [ -z "${NEXUS_PASSWORD}" ]; then
+          echo "WARNING: Nexus credentials not provided; skipping deploy step." >&2
+          exit 0
+        fi
+
+        mkdir -p ~/.m2
+        cat > ~/.m2/settings.xml << 'EOF'
+        <settings>
+          <servers>
+            <server>
+              <id>maven-releases</id>
+              <username>${env.NEXUS_USERNAME}</username>
+              <password>${env.NEXUS_PASSWORD}</password>
+            </server>
+            <!-- Add snapshot server here if you add snapshotRepository in pom.xml -->
+          </servers>
+        </settings>
+        EOF
+
+    - name: Deploy to Nexus (if credentials present)
+      env:
+        NEXUS_USERNAME: ${{ secrets.NEXUS_USERNAME }}
+        NEXUS_PASSWORD: ${{ secrets.NEXUS_PASSWORD }}
+      run: |
+        if [ -z "${NEXUS_USERNAME}" ] || [ -z "${NEXUS_PASSWORD}" ]; then
+          echo "Skipping Nexus deploy because credentials are not set."
+          exit 0
+        fi
+        mvn -B deploy
+
+    # ---- TOMCAT DEPLOY ----
+    - name: Deploy WAR to Tomcat (Manager API)
+      if: always()  # run even if previous step skipped; will self-check env
+      env:
+        TOMCAT_HOST: 18.207.93.131                   # Tomcat IP/host
+        TOMCAT_USER: ${{ secrets.TOMCAT_USER }}      # REQUIRED for Tomcat deploy
+        TOMCAT_PASS: ${{ secrets.TOMCAT_PASS }}      # REQUIRED for Tomcat deploy
+        TOMCAT_CONTEXT_PATH: /JavaWebApp             # change to your desired context path
+      run: |
+        # Require credentials
+        if [ -z "${TOMCAT_USER}" ] || [ -z "${TOMCAT_PASS}" ]; then
+          echo "Skipping Tomcat deploy because TOMCAT_USER/PASS not set."
+          exit 0
+        fi
+
+        WAR_FILE=$(ls target/*.war 2>/dev/null | head -n 1)
+        if [ -z "$WAR_FILE" ]; then
+          echo "No WAR produced in target/. Ensure <packaging>war</packaging> in pom.xml." >&2
+          exit 1
+        fi
+
+        echo "Attempting deploy of ${WAR_FILE} to http://${TOMCAT_HOST}:8080${TOMCAT_CONTEXT_PATH}"
+
+        # Optionally undeploy first (ignore errors if not existing)
+        curl -sS -u "${TOMCAT_USER}:${TOMCAT_PASS}" \
+          "http://${TOMCAT_HOST}:8080/manager/text/undeploy?path=${TOMCAT_CONTEXT_PATH}" || true
+
+        # Deploy/Update
+        curl -sS -u "${TOMCAT_USER}:${TOMCAT_PASS}" \
+          --upload-file "$WAR_FILE" \
+          "http://${TOMCAT_HOST}:8080/manager/text/deploy?path=${TOMCAT_CONTEXT_PATH}&update=true"
+
+    # ---- (Optional) Upload the built WAR as a GitHub artifact ----
+    - name: Upload WAR artifact
+      if: success() || failure()
+      uses: actions/upload-artifact@v4
+      with:
+        name: webapp-war
+        path: target/*.war
+        if-no-files-found: warn
