@@ -14,6 +14,24 @@
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+    <!-- SonarQube configuration -->
+    <sonar.host.url>http://34.229.165.151:9000</sonar.host.url>
+    <sonar.projectKey>JavaWebApp</sonar.projectKey>
+    <!-- Optional extras if your structure is non-standard:
+    <sonar.projectName>Java Web App</sonar.projectName>
+    <sonar.sources>src/main/java</sonar.sources>
+    <sonar.tests>src/test/java</sonar.tests>
+    <sonar.java.binaries>target/classes</sonar.java.binaries>
+    -->
+
+    <!-- Centralized plugin versions -->
+    <maven.compiler.plugin.version>3.11.0</maven.compiler.plugin.version>
+    <maven.war.plugin.version>3.3.2</maven.war.plugin.version>
+    <maven.surefire.plugin.version>3.2.5</maven.surefire.plugin.version>
+    <jacoco.plugin.version>0.8.10</jacoco.plugin.version>
+    <sonar.maven.plugin.version>4.0.0.4121</sonar.maven.plugin.version>
+    <maven.enforcer.plugin.version>3.5.0</maven.enforcer.plugin.version>
   </properties>
 
   <dependencies>
@@ -25,7 +43,7 @@
       <scope>test</scope>
     </dependency>
 
-    <!-- Servlet API (modern version, compatible with Java 17) -->
+    <!-- Servlet API (provided by Tomcat at runtime) -->
     <dependency>
       <groupId>javax.servlet</groupId>
       <artifactId>javax.servlet-api</artifactId>
@@ -36,33 +54,89 @@
 
   <build>
     <plugins>
+      <!-- Enforce Java version -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+        <version>${maven.enforcer.plugin.version}</version>
+        <executions>
+          <execution>
+            <id>enforce-java</id>
+            <goals><goal>enforce</goal></goals>
+            <configuration>
+              <rules>
+                <requireJavaVersion>
+                  <version>[17,)</version>
+                </requireJavaVersion>
+              </rules>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+
       <!-- Compiler plugin for Java 17 -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
-        <version>3.11.0</version>
+        <version>${maven.compiler.plugin.version}</version>
         <configuration>
           <source>17</source>
           <target>17</target>
         </configuration>
       </plugin>
 
-      <!-- Modern WAR plugin -->
+      <!-- WAR packaging -->
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-war-plugin</artifactId>
-        <version>3.3.2</version>
+        <version>${maven.war.plugin.version}</version>
+      </plugin>
+
+      <!-- Tests -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>${maven.surefire.plugin.version}</version>
+      </plugin>
+
+      <!-- Code coverage (helps Sonar) -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <version>${jacoco.plugin.version}</version>
+        <executions>
+          <execution>
+            <goals><goal>prepare-agent</goal></goals>
+          </execution>
+          <execution>
+            <id>report</id>
+            <phase>test</phase>
+            <goals><goal>report</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+
+      <!-- Sonar plugin pinned -->
+      <plugin>
+        <groupId>org.sonarsource.scanner.maven</groupId>
+        <artifactId>sonar-maven-plugin</artifactId>
+        <version>${sonar.maven.plugin.version}</version>
       </plugin>
     </plugins>
   </build>
 
+  <!-- Nexus deployment config (release repo) -->
   <distributionManagement>
     <repository>
       <id>maven-releases</id>
       <url>http://18.226.34.227:8081/repository/maven-releases/</url>
     </repository>
+    <!-- If you also publish snapshots in the future, add:
+    <snapshotRepository>
+      <id>maven-snapshots</id>
+      <url>http://18.226.34.227:8081/repository/maven-snapshots/</url>
+    </snapshotRepository>
+    -->
   </distributionManagement>
 
 </project>
-
- 
