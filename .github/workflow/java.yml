@@ -1,0 +1,46 @@
+name: Maven CI-CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v3
+
+    - name: Set up JDK
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+
+    - name: SonarQube Analysis
+      run: |
+        mvn sonar:sonar \
+          -Dsonar.projectKey=JavaWebApp \
+          -Dsonar.host.url=http://34.229.165.151:9000 \
+          -Dsonar.login=${{ secrets.SONAR }}
+      env:
+        SONAR_USER: ${{ secrets.SONAR_ACCESS.SONAR_USER }}
+        SONAR_PASS: ${{ secrets.SONAR_ACCESS.SONAR_PASS }}
+
+    - name: Build with Maven
+      run: mvn clean package
+
+    - name: Deploy to Nexus
+      run: |
+        mvn deploy -DaltDeploymentRepository=nexus::default::http://98.91.25.47:8081/repository/JAVA/
+      env:
+        MAVEN_USERNAME: ${{ secrets.NEXUS_CRED.NEXUS_USER }}
+        MAVEN_PASSWORD: ${{ secrets.NEXUS_CRED.NEXUS_PASS }}
+
+    - name: Deploy to Tomcat
+      run: |
+        curl -u ${{ secrets.TOMCAT_CRED.TOMCAT_USER }}:${{ secrets.TOMCAT_CRED.TOMCAT_PASS }} \
+        -T target/*.war \
