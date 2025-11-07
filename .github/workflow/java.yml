@@ -1,4 +1,3 @@
-# .github/workflows/maven-build.yml
 name: Maven Build & Sonar
 
 on:
@@ -27,14 +26,23 @@ jobs:
 
     - name: SonarQube Analysis
       env:
-        SONAR_HOST_URL: http://34.229.165.151:9000   # <-- ensure this is correct & reachable
-        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}      # <-- create this secret in GitHub
+        SONAR_HOST_URL: http://34.229.165.151:9000
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
       run: |
-        echo "Using Sonar host: ${SONAR_HOST_URL}"
-        # Optional: quick connectivity check
-        curl -sS -I ${SONAR_HOST_URL} || true
+        echo "SONAR_HOST_URL=${SONAR_HOST_URL}"
+        if [ -z "${SONAR_HOST_URL}" ]; then
+          echo "ERROR: SONAR_HOST_URL is empty." >&2
+          exit 1
+        fi
+        if [ -z "${SONAR_TOKEN}" ]; then
+          echo "ERROR: SONAR_TOKEN secret is missing." >&2
+          exit 1
+        fi
+
+        echo "Checking connectivity to SonarQube..."
+        curl -sS -I "${SONAR_HOST_URL}" || { echo "ERROR: Cannot reach ${SONAR_HOST_URL}"; exit 1; }
 
         mvn -B org.sonarsource.scanner.maven:sonar-maven-plugin:4.0.0.4121:sonar \
           -Dsonar.projectKey=JavaWebApp \
-          -Dsonar.host.url=${SONAR_HOST_URL} \
-          -Dsonar.login=${SONAR_TOKEN}
+          -Dsonar.host.url="${SONAR_HOST_URL}" \
+          -Dsonar.login="${SONAR_TOKEN}"
